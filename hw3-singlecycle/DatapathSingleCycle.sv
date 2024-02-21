@@ -25,7 +25,24 @@ module RegFile (
   logic [`REG_SIZE] regs[NumRegs];
 
   // TODO: your code here
+always_ff @(posedge clk) begin
+        if (rst) begin
+            // Synchronous reset: set all registers to 0
+            for (int i = 0; i < NumRegs; i++) begin
+                regs[i] <= 0;
+            end
+        end else if (we) begin
+            // Write operation: write data to rd if we is high and rd is not 0
+            if (rd != 0) begin
+                regs[rd] <= rd_data;
+            end
+        end
+    end
 
+always_comb begin
+    rs1_data = regs[rs1];
+    rs2_data = regs[rs2];
+  end
 endmodule
 
 module DatapathSingleCycle (
@@ -186,19 +203,97 @@ module DatapathSingleCycle (
     end
   end
 
+  logic [`REG_SIZE] wb_data; 
+  logic [`REG_SIZE] rs1_data, rs2_data;
+  logic reg_wr_en;
+
+  RegFile rf(
+    .rd(insn_rd),
+    .rd_data(wb_data),
+    .rs1(insn_rs1),
+    .rs1_data(rs1_data),
+    .rs2(insn_rs2),
+    .rs2_data(rs2_data),
+    .clk(clk),
+    .we(reg_wr_en),
+    .rst(rst)    
+  );
+
   logic illegal_insn;
 
   always_comb begin
     illegal_insn = 1'b0;
+    pcNext = pcCurrent + 32'd4;
+    wb_data = 32'd0;
+    reg_wr_en = 0;
+    halt = 0;
 
     case (insn_opcode)
       OpLui: begin
         // TODO: start here by implementing lui
+        wb_data = {insn_from_imem[31:12],12'b0};
+        reg_wr_en = 1;
+      end
+
+      OpAuipc: begin
+        wb_data = pcCurrent + {insn_from_imem[31:12],12'b0};
+        reg_wr_en = 1;
+      end
+
+      OpRegImm: begin
+        if(insn_addi) begin
+          wb_data = rs1_data + imm_i_sext;
+          reg_wr_en = 1;
+        end
+
+        if(insn_slti) begin
+          wb_data = (rs1_data < imm_i_sext) ? 1 : 0;
+          reg_wr_en = 1;
+        end
+
+        if(insn_sltiu) begin
+          wb_data = (rs1_data < {{20{1'b0}}, imm_i[11:0]}) ? 1 : 0;
+          reg_wr_en = 1;
+        end
+
+        if(insn_xori) begin
+          wb_data = rs1_data ^ imm_i_sext;
+          reg_wr_en = 1;
+        end
+
+        if(insn_ori) begin
+          wb_data = rs1_data | imm_i_sext;
+          reg_wr_en = 1;
+        end
+
+        if(insn_andi) begin 
+          wb_data = rs1_data & imm_i_sext;
+          reg_wr_en = 1;
+        end
+
+        if(insn_slli) begin 
+          wb_data = rs1_data << imm_shamt;
+          reg_wr_en = 1;
+        end
+
+        if(insn_srli) begin 
+          wb_data = rs1_data >> imm_shamt;
+          reg_wr_en = 1;
+        end
+
+        if(insn_srai) begin 
+          wb_data = rs1_data >>> imm_shamt;
+          reg_wr_en = 1;
+        end
       end
       default: begin
         illegal_insn = 1'b1;
       end
     endcase
+
+
+
+
   end
 
 endmodule
