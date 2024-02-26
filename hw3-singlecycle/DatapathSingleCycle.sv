@@ -25,24 +25,26 @@ module RegFile (
   logic [`REG_SIZE] regs[NumRegs];
 
   // TODO: your code here
-always_ff @(posedge clk) begin
-        if (rst) begin
-            // Synchronous reset: set all registers to 0
-            for (int i = 0; i < NumRegs; i++) begin
-                regs[i] <= 0;
-            end
-        end else if (we) begin
-            // Write operation: write data to rd if we is high and rd is not 0
-            if (rd != 0) begin
-                regs[rd] <= rd_data;
-            end
-        end
-    end
-
 always_comb begin
-    rs1_data = regs[rs1];
-    rs2_data = regs[rs2];
+  regs[0] = 32'd0;
+  rs1_data = regs[rs1];
+  rs2_data = regs[rs2];
+end
+
+always_ff @(posedge clk) begin
+  if (rst) begin
+      // Synchronous reset: set all registers to 0
+      for (int i = 1; i < NumRegs; i = i + 1) begin
+          regs[i] <= 32'd0;
+      end
+  end else if (we) begin
+      // Write operation: write data to rd if we is high and rd is not 0
+      if (rd != 0) begin
+          regs[rd] <= rd_data;
+      end
   end
+end
+
 endmodule
 
 module DatapathSingleCycle (
@@ -203,9 +205,11 @@ module DatapathSingleCycle (
     end
   end
 
-  logic [`REG_SIZE] wb_data; 
-  logic [`REG_SIZE] rs1_data, rs2_data;
+  //regfile part
   logic reg_wr_en;
+  logic [`REG_SIZE] wb_data;
+  logic [`REG_SIZE] rs1_data;
+  logic [`REG_SIZE] rs2_data;
 
   RegFile rf(
     .rd(insn_rd),
@@ -216,84 +220,351 @@ module DatapathSingleCycle (
     .rs2_data(rs2_data),
     .clk(clk),
     .we(reg_wr_en),
-    .rst(rst)    
+    .rst(rst)
+  );
+
+  //cla part
+  logic [`REG_SIZE] add1;
+  logic [`REG_SIZE] add2;
+  logic cin;
+  logic [`REG_SIZE] sum;
+
+  cla cla(
+    .a(add1),
+    .b(add2),
+    .cin(cin),
+    .sum(sum)
+  );
+
+  //muliply part
+  logic [63:0] mul_result; 
+
+  //divide part
+  logic [`REG_SIZE] div_end;
+  logic [`REG_SIZE] div_or;
+  logic [`REG_SIZE] rem;
+  logic [`REG_SIZE] quot;
+
+  divider_unsigned div(
+    .i_dividend(div_end),
+    .i_divisor(div_or),
+    .o_remainder(rem),
+    .o_quotient(quot)
   );
 
   logic illegal_insn;
+  logic [`REG_SIZE] addr_temp;
+  logic [`REG_SIZE] rs1_data_n;
+  logic [1:0] byte_sel;
 
   always_comb begin
     illegal_insn = 1'b0;
+
     pcNext = pcCurrent + 32'd4;
+
     wb_data = 32'd0;
-    reg_wr_en = 0;
-    halt = 0;
+    reg_wr_en = 1'b0;
+
+    add1 = 32'd0;
+    add2 = 32'd0;
+    cin = 1'b0;
+
+    mul_result = 64'd0;
+    rs1_data_n = 32'b0;
+
+    div_end = 32'd0;
+    div_or = 32'd0;
+
+    halt = 1'b0;
+
+    addr_temp = 32'd0;
+    addr_to_dmem = 32'd0;
+    store_data_to_dmem = 32'd0;
+    store_we_to_dmem = 4'd0;
+    byte_sel = 2'd0;
 
     case (insn_opcode)
       OpLui: begin
         // TODO: start here by implementing lui
-        wb_data = {insn_from_imem[31:12],12'b0};
-        reg_wr_en = 1;
+        reg_wr_en = 1'b1;
+        wb_data = {insn_from_imem[31:12],12'd0};
       end
 
       OpAuipc: begin
-        wb_data = pcCurrent + {insn_from_imem[31:12],12'b0};
         reg_wr_en = 1;
+        wb_data = pcCurrent + {insn_from_imem[31:12],12'd0};
       end
 
       OpRegImm: begin
+        reg_wr_en = 1'b1;
+
         if(insn_addi) begin
-          wb_data = rs1_data + imm_i_sext;
-          reg_wr_en = 1;
-        end
-
-        if(insn_slti) begin
+          add1 = rs1_data;
+          add2 = imm_i_sext;
+          wb_data = sum;
+        end else if(insn_slti) begin
+          wb_data = ($signed(rs1_data) < $signed(imm_i_sext)) ? 1 : 0;
+        end else if(insn_sltiu) begin
           wb_data = (rs1_data < imm_i_sext) ? 1 : 0;
-          reg_wr_en = 1;
-        end
-
-        if(insn_sltiu) begin
-          wb_data = (rs1_data < {{20{1'b0}}, imm_i[11:0]}) ? 1 : 0;
-          reg_wr_en = 1;
-        end
-
-        if(insn_xori) begin
+        end else if(insn_xori) begin
           wb_data = rs1_data ^ imm_i_sext;
-          reg_wr_en = 1;
-        end
-
-        if(insn_ori) begin
+        end else if(insn_ori) begin
           wb_data = rs1_data | imm_i_sext;
-          reg_wr_en = 1;
-        end
-
-        if(insn_andi) begin 
+        end else if(insn_andi) begin
           wb_data = rs1_data & imm_i_sext;
-          reg_wr_en = 1;
-        end
-
-        if(insn_slli) begin 
+        end else if(insn_slli) begin
           wb_data = rs1_data << imm_shamt;
-          reg_wr_en = 1;
-        end
-
-        if(insn_srli) begin 
+        end else if(insn_srli) begin
           wb_data = rs1_data >> imm_shamt;
-          reg_wr_en = 1;
-        end
-
-        if(insn_srai) begin 
-          wb_data = rs1_data >>> imm_shamt;
-          reg_wr_en = 1;
+        end else if(insn_srai) begin
+          wb_data = $signed(rs1_data) >>> imm_shamt;
         end
       end
+
+      OpRegReg: begin
+        reg_wr_en = 1;
+
+        if(insn_add) begin
+          add1 = rs1_data;
+          add2 = rs2_data;
+          wb_data = sum;
+        end else if(insn_sub) begin
+          add1 = rs1_data;
+          add2 = ~rs2_data + 32'd1;
+          wb_data = sum;
+        end else if(insn_sll) begin
+          wb_data = rs1_data << rs2_data[4:0];
+        end else if(insn_slt) begin
+          wb_data = ($signed(rs1_data) < $signed(rs2_data)) ? 1 : 0;
+        end else if(insn_sltu) begin
+          wb_data = (rs1_data < rs2_data) ? 1 : 0;
+        end else if(insn_xor) begin
+          wb_data = rs1_data ^ rs2_data;
+        end else if(insn_srl) begin
+          wb_data = rs1_data >> rs2_data[4:0];
+        end else if(insn_sra) begin
+          wb_data = $signed(rs1_data) >>> rs2_data[4:0];
+        end else if(insn_or) begin
+          wb_data = rs1_data | rs2_data;
+        end else if(insn_and) begin
+          wb_data = rs1_data & rs2_data;
+        end
+
+      //multiply
+        else if (insn_mul) begin
+          mul_result = rs1_data * rs2_data;
+          wb_data = mul_result[31:0];
+        end else if(insn_mulh) begin
+          mul_result = {{32{rs1_data[31]}}, rs1_data} * {{32{rs2_data[31]}}, rs2_data};
+          wb_data = mul_result[63:32];          
+        end else if(insn_mulhsu) begin
+          mul_result = {{32{rs1_data[31]}}, rs1_data} * {32'b0, rs2_data};
+          wb_data = mul_result[63:32];
+        end else if(insn_mulhu) begin
+          mul_result = rs1_data * rs2_data;
+          wb_data = mul_result[63:32];
+        end
+      //divide
+        else if(insn_div) begin
+          div_end = rs1_data;
+          if(rs2_data == 0) begin
+            wb_data = 32'hFFFFFFFF;
+          end else if (rs1_data == 32'h80000000) begin
+            wb_data = 32'h80000000;
+          end else if(rs1_data[31] == 1 && rs2_data[31] ==1) begin
+            div_end = 32'h7FFFFFF & ~(rs1_data - 1);
+            div_or = 32'h7FFFFFF & ~(rs2_data - 1);
+            wb_data = quot;            
+          end else if(rs1_data[31] == 1 && rs2_data[31] == 0) begin
+            div_end = 32'h7FFFFFF & ~(rs1_data - 1);
+            div_or = rs2_data;
+            wb_data = ~quot + 1;
+          end else if(rs1_data[31] == 0 && rs2_data[31] ==1) begin
+            div_end = rs1_data;
+            div_or = 32'h7FFFFFF & ~(rs2_data - 1);
+            wb_data = ~quot + 1;
+          end else if(rs1_data[31] == 0 && rs2_data[31] ==0) begin
+            div_end = rs1_data;
+            div_or = rs2_data;
+            wb_data = quot;
+          end 
+        end else if(insn_divu) begin
+          div_end = rs1_data;
+          div_or = rs2_data;
+          wb_data = quot;
+        end else if(insn_rem) begin
+          if(rs2_data == 0) begin
+            wb_data = rs1_data;
+          end else if(rs1_data == 32'h80000000) begin
+            wb_data = 0;
+          end else if(rs1_data[31] == 1 && rs2_data[31] ==1) begin
+            div_end = 32'h7FFFFFF & ~(rs1_data - 1);
+            div_or = 32'h7FFFFFF & ~(rs2_data - 1);
+            wb_data = ~rem + 1;            
+          end else if(rs1_data[31] == 1 && rs2_data[31] == 0) begin
+            div_end = 32'h7FFFFFF & ~(rs1_data - 1);
+            div_or = rs2_data;
+            wb_data = ~rem + 1;
+          end else if(rs1_data[31] == 0 && rs2_data[31] ==1) begin
+            div_end = rs1_data;
+            div_or = 32'h7FFFFFF & ~(rs2_data - 1);
+            wb_data = rem;
+          end else if(rs1_data[31] == 0 && rs2_data[31] == 0) begin
+            div_end = rs1_data;
+            div_or = rs2_data;
+            wb_data = rem;
+          end 
+        end else if(insn_remu) begin
+          div_end = rs1_data;
+          div_or = rs2_data;
+          wb_data =rem;
+        end
+      end  
+
+      OpBranch: begin
+        if(insn_beq) begin 
+          pcNext = (rs1_data == rs2_data) ? ((pcCurrent + imm_b_sext) & ~3) : pcNext;
+        end else if(insn_bne) begin
+          pcNext = (rs1_data != rs2_data) ? ((pcCurrent + imm_b_sext) & ~3) : pcNext;
+        end else if(insn_blt) begin
+          pcNext = ($signed(rs1_data) < $signed(rs2_data)) ? ((pcCurrent + imm_b_sext) & ~3) : pcNext;
+        end else if(insn_bge) begin
+          pcNext = ($signed(rs1_data) >= $signed(rs2_data)) ? ((pcCurrent + imm_b_sext) & ~3) : pcNext;
+        end else if(insn_bltu) begin
+          pcNext = (rs1_data < rs2_data) ? ((pcCurrent + imm_b_sext) & ~3) : pcNext;
+        end else if(insn_bgeu) begin
+          pcNext = (rs1_data >= rs2_data) ? ((pcCurrent + imm_b_sext) & ~3) : pcNext;
+        end 
+      end
+
+      OpEnviron: begin
+        if(insn_ecall) begin
+          halt = 1'b1;
+        end
+      end
+
+      OpLoad: begin
+        reg_wr_en = 1;
+        addr_temp = rs1_data + imm_i_sext;
+        byte_sel = addr_temp[1:0];
+        addr_to_dmem = addr_temp & ~3; 
+
+        if(insn_lb) begin
+          case(byte_sel)
+            2'b00: begin
+              wb_data = {{24{load_data_from_dmem[7]}}, load_data_from_dmem[7:0]};
+            end
+            2'b01: begin
+              wb_data = {{24{load_data_from_dmem[15]}}, load_data_from_dmem[15:8]};
+            end
+            2'b10: begin
+              wb_data = {{24{load_data_from_dmem[23]}}, load_data_from_dmem[23:16]};
+            end
+            2'b11: begin
+              wb_data = {{24{load_data_from_dmem[31]}}, load_data_from_dmem[31:24]};
+            end
+          endcase
+        end else if(insn_lh) begin
+          case(byte_sel[1])
+            1: begin
+              wb_data = {{16{load_data_from_dmem[31]}}, load_data_from_dmem[31:16]};
+            end
+            0: begin
+              wb_data = {{16{load_data_from_dmem[15]}}, load_data_from_dmem[15:0]};
+            end
+          endcase         
+        end else if(insn_lw) begin
+          wb_data = load_data_from_dmem;
+        end else if(insn_lbu) begin
+          case(byte_sel) 
+            2'b00:begin
+              wb_data = {24'b0, load_data_from_dmem[7:0]};
+            end
+            2'b01:begin
+              wb_data = {24'b0, load_data_from_dmem[15:8]};
+            end
+            2'b10:begin
+              wb_data = {24'b0, load_data_from_dmem[23:16]};
+            end
+            2'b11:begin
+              wb_data = {24'b0, load_data_from_dmem[31:24]};
+            end
+          endcase
+        end else if(insn_lhu) begin
+          case(byte_sel[1])
+            1: begin
+              wb_data = {16'b0, load_data_from_dmem[31:16]};
+            end
+            0: begin
+              wb_data = {16'b0, load_data_from_dmem[15:0]};
+            end
+          endcase   
+        end        
+      end      
+
+      OpStore: begin
+        addr_temp = rs1_data + imm_s_sext;
+        byte_sel = addr_temp[1:0];
+        addr_to_dmem = addr_temp & ~3; 
+        
+        if(insn_sb) begin
+          case (byte_sel) 
+            2'b00: begin
+              store_data_to_dmem[7:0] = rs2_data[7:0];
+              store_we_to_dmem = 4'b0001;
+            end
+            2'b01: begin
+              store_data_to_dmem[15:8] = rs2_data[7:0];
+              store_we_to_dmem = 4'b0010;
+            end
+            2'b10: begin
+              store_data_to_dmem[23:16] = rs2_data[7:0];
+              store_we_to_dmem = 4'b0100;
+            end
+            2'b11: begin
+              store_data_to_dmem[31:24] = rs2_data[7:0];
+              store_we_to_dmem = 4'b1000;
+            end
+          endcase
+        end if(insn_sh) begin
+          case (byte_sel[1])
+            1: begin
+              store_data_to_dmem[31:16] = rs2_data[15:0];
+              store_we_to_dmem = 4'b1100;
+            end
+            0: begin
+              store_data_to_dmem[15:0] = rs2_data[15:0];
+              store_we_to_dmem = 4'b0011;
+            end
+          endcase
+        end else if(insn_sw) begin
+          store_data_to_dmem = rs2_data;
+          store_we_to_dmem = 4'b1111;
+        end
+      end
+
+      OpJal: begin
+        reg_wr_en = 1;
+        wb_data = pcCurrent + 32'd4;
+        pcNext = (pcCurrent + imm_j_sext) & ~3;
+      end
+
+      OpJalr: begin
+        reg_wr_en = 1;
+        wb_data = pcCurrent + 32'd4;
+        pcNext = (rs1_data + imm_i_sext) & ~3;
+      end
+
+      OpMiscMem: begin
+        if(insn_fence) begin
+
+        end
+      end
+      
       default: begin
         illegal_insn = 1'b1;
       end
     endcase
-
-
-
-
   end
 
 endmodule
