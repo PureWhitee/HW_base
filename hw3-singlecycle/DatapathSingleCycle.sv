@@ -257,6 +257,13 @@ module DatapathSingleCycle (
   logic [`REG_SIZE] rs1_data_n;
   logic [1:0] byte_sel;
 
+  logic [`REG_SIZE] my_store_data_to_dmem_logic;
+  logic [`REG_SIZE] my_addr_to_dmem_logic;
+  logic [3:0] my_store_we_to_dmem_logic;
+  assign store_data_to_dmem = my_store_data_to_dmem_logic;
+  assign addr_to_dmem = my_addr_to_dmem_logic;
+  assign store_we_to_dmem = my_store_we_to_dmem_logic;
+
   always_comb begin
     illegal_insn = 1'b0;
 
@@ -278,9 +285,9 @@ module DatapathSingleCycle (
     halt = 1'b0;
 
     addr_temp = 32'd0;
-    addr_to_dmem = 32'd0;
-    store_data_to_dmem = 32'd0;
-    store_we_to_dmem = 4'd0;
+    my_addr_to_dmem_logic = 32'd0;
+    my_store_data_to_dmem_logic = 32'd0;
+    my_store_we_to_dmem_logic = 4'd0;
     byte_sel = 2'd0;
 
     case (insn_opcode)
@@ -372,16 +379,16 @@ module DatapathSingleCycle (
           end else if (rs1_data == 32'h80000000) begin
             wb_data = 32'h80000000;
           end else if(rs1_data[31] == 1 && rs2_data[31] ==1) begin
-            div_end = 32'h7FFFFFF & ~(rs1_data - 1);
-            div_or = 32'h7FFFFFF & ~(rs2_data - 1);
+            div_end = 32'h7FFFFFF & (~rs1_data +1);
+            div_or = 32'h7FFFFFF & (~rs2_data + 1);
             wb_data = quot;            
           end else if(rs1_data[31] == 1 && rs2_data[31] == 0) begin
-            div_end = 32'h7FFFFFF & ~(rs1_data - 1);
+            div_end = 32'h7FFFFFF & (~rs1_data + 1);
             div_or = rs2_data;
             wb_data = ~quot + 1;
           end else if(rs1_data[31] == 0 && rs2_data[31] ==1) begin
             div_end = rs1_data;
-            div_or = 32'h7FFFFFF & ~(rs2_data - 1);
+            div_or = 32'h7FFFFFF & (~rs2_data + 1);
             wb_data = ~quot + 1;
           end else if(rs1_data[31] == 0 && rs2_data[31] ==0) begin
             div_end = rs1_data;
@@ -398,16 +405,16 @@ module DatapathSingleCycle (
           end else if(rs1_data == 32'h80000000) begin
             wb_data = 0;
           end else if(rs1_data[31] == 1 && rs2_data[31] ==1) begin
-            div_end = 32'h7FFFFFF & ~(rs1_data - 1);
-            div_or = 32'h7FFFFFF & ~(rs2_data - 1);
+            div_end = 32'h7FFFFFF & (~rs1_data + 1);
+            div_or = 32'h7FFFFFF & (~rs2_data + 1);
             wb_data = ~rem + 1;            
           end else if(rs1_data[31] == 1 && rs2_data[31] == 0) begin
-            div_end = 32'h7FFFFFF & ~(rs1_data - 1);
+            div_end = 32'h7FFFFFF & (~rs1_data +1);
             div_or = rs2_data;
             wb_data = ~rem + 1;
           end else if(rs1_data[31] == 0 && rs2_data[31] ==1) begin
             div_end = rs1_data;
-            div_or = 32'h7FFFFFF & ~(rs2_data - 1);
+            div_or = 32'h7FFFFFF & (~rs2_data + 1);
             wb_data = rem;
           end else if(rs1_data[31] == 0 && rs2_data[31] == 0) begin
             div_end = rs1_data;
@@ -447,7 +454,7 @@ module DatapathSingleCycle (
         reg_wr_en = 1;
         addr_temp = rs1_data + imm_i_sext;
         byte_sel = addr_temp[1:0];
-        addr_to_dmem = addr_temp & ~3; 
+        my_addr_to_dmem_logic = addr_temp & ~3; 
 
         if(insn_lb) begin
           case(byte_sel)
@@ -505,41 +512,41 @@ module DatapathSingleCycle (
       OpStore: begin
         addr_temp = rs1_data + imm_s_sext;
         byte_sel = addr_temp[1:0];
-        addr_to_dmem = addr_temp & ~3; 
+        my_addr_to_dmem_logic = addr_temp & ~3; 
         
         if(insn_sb) begin
           case (byte_sel) 
             2'b00: begin
-              store_data_to_dmem[7:0] = rs2_data[7:0];
-              store_we_to_dmem = 4'b0001;
+              my_store_data_to_dmem_logic[7:0] = rs2_data[7:0];
+              my_store_we_to_dmem_logic = 4'b0001;
             end
             2'b01: begin
-              store_data_to_dmem[15:8] = rs2_data[7:0];
-              store_we_to_dmem = 4'b0010;
+              my_store_data_to_dmem_logic[15:8] = rs2_data[7:0];
+              my_store_we_to_dmem_logic = 4'b0010;
             end
             2'b10: begin
-              store_data_to_dmem[23:16] = rs2_data[7:0];
-              store_we_to_dmem = 4'b0100;
+              my_store_data_to_dmem_logic[23:16] = rs2_data[7:0];
+              my_store_we_to_dmem_logic = 4'b0100;
             end
             2'b11: begin
-              store_data_to_dmem[31:24] = rs2_data[7:0];
-              store_we_to_dmem = 4'b1000;
+              my_store_data_to_dmem_logic[31:24] = rs2_data[7:0];
+              my_store_we_to_dmem_logic = 4'b1000;
             end
           endcase
         end if(insn_sh) begin
           case (byte_sel[1])
             1: begin
-              store_data_to_dmem[31:16] = rs2_data[15:0];
-              store_we_to_dmem = 4'b1100;
+              my_store_data_to_dmem_logic[31:16] = rs2_data[15:0];
+              my_store_we_to_dmem_logic = 4'b1100;
             end
             0: begin
-              store_data_to_dmem[15:0] = rs2_data[15:0];
-              store_we_to_dmem = 4'b0011;
+              my_store_data_to_dmem_logic[15:0] = rs2_data[15:0];
+              my_store_we_to_dmem_logic = 4'b0011;
             end
           endcase
         end else if(insn_sw) begin
-          store_data_to_dmem = rs2_data;
-          store_we_to_dmem = 4'b1111;
+          my_store_data_to_dmem_logic = rs2_data;
+          my_store_we_to_dmem_logic = 4'b1111;
         end
       end
 
