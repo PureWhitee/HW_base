@@ -23,7 +23,7 @@ module divider_unsigned (
 
     genvar i;
     generate
-        for(i = 0; i < 33; i = i + 1) begin: div_loop
+        for(i = 0; i < 32; i = i + 1) begin: div_loop
         divu_1iter div_i(
             .i_dividend(dividend[i]),
             .i_divisor(i_divisor),
