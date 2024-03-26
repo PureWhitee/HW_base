@@ -56,7 +56,23 @@ module RegFile (
   logic [`REG_SIZE] regs[NumRegs];
 
   // TODO: your code here
+  always_comb begin
+    regs[0] = 32'd0;
+    rs1_data = regs[rs1];
+    rs2_data = regs[rs2];
+  end
 
+  always_ff(posedge clk) begin 
+    if(rst) begin
+      for(i = 1; i < NumRegs; i++) begin 
+        regs[i] <= 0;
+      end
+    end else if (we) begin 
+      if (rd != 0) begin 
+        regs[rd] <= rd_data; 
+      end
+    end
+  end
 endmodule
 
 /**
@@ -208,6 +224,45 @@ module DatapathPipelined (
 
   // TODO: your code here, though you will also need to modify some of the code above
   // TODO: the testbench requires that your register file instance is named `rf`
+  logic [4:0] rd_addr, rs1_addr, rs2_addr;
+  logic [`REG_SIZE] rd_data, rs1_data, rs2_data;
+  logic w_en;
+  RegFile rf(
+    .rd(rd_addr),
+    .rd_data(rd_data),
+    .rs1(rs1_addr),
+    .rs1_data(rs1_data),
+    .rs2(rs2_addr),
+    .rs2_data(rs2_data),
+    .clk(clk),
+    .we(w_en),
+    .rst(rst)
+  );
+
+  always_ff @(posedge clk) begin 
+    if(!rst) begin 
+      rs1_addr = decode_state.insn[19:15];
+      rs2_addr = decode_state.insn[24:20];
+      rd_addr = decode_state.insn[11:7];
+    end
+
+    rs1_data = rf.read(rs1_addr);
+    rs2_data = rf.read(rs2_addr);
+  end
+
+
+
+  /*****************/
+  /* EXECUTE STAGE */
+  /*****************/
+
+  /****************/
+  /* MEMORY STAGE */
+  /****************/
+
+  /*******************/
+  /* WRITEBACK STAGE */
+  /*******************/
 
 endmodule
 
