@@ -82,7 +82,7 @@ module DatapathMultiCycle (
   // I - short immediates and loads
   wire [11:0] imm_i;
   assign imm_i = insn_from_imem[31:20];
-  wire [ 4:0] imm_shamt = insn_from_imem[24:20];
+  wire [4:0] imm_shamt = insn_from_imem[24:20];
 
   // S - stores
   wire [11:0] imm_s;
@@ -199,7 +199,6 @@ module DatapathMultiCycle (
       end else if(check_temp == 1) begin 
           check = 1;             //div opration
       end
-      
     end
   end
   assign pc_to_imem = pcCurrent;
